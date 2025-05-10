@@ -98,6 +98,7 @@ contract DSCUpgradeDAO is Test {
 
         console2.log("Proposal state:", uint256(hkdce.state(proposalId)));
 
+        // 4. execute the proposal
         hkdce.execute(addressesToCall, values, functionCalls, descriptionHash);
 
         assertEq(dscProxy.version(), 2);
