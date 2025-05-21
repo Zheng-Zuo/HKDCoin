@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import {Test, console2} from "forge-std/Test.sol";
 import {DeployDAO, HKDCG, TimeLock, HKDCDAO, HelperConfig} from "script/deploy/deployDao.s.sol";
 import {DeployDSC, DSC} from "script/deploy/deployDSC.s.sol";
-import {MockDSCV2} from "src/mock/MockDSCV2.sol";
+import {MockDSCV2} from "src/mocks/MockDSCV2.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract DSCUpgradeDAO is Test {

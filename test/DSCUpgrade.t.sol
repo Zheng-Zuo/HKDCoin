@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {DeployDSC, DSC, HelperConfig} from "script/deploy/deployDSC.s.sol";
-import {MockDSCV2} from "src/mock/MockDSCV2.sol";
+import {MockDSCV2} from "src/mocks/MockDSCV2.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract DSCUpgradeTest is Test {

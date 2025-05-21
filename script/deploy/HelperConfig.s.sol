@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Script} from "forge-std/Script.sol";
-import {MockERC20} from "src/mock/MockERC20.sol";
+import {MockERC20} from "src/mocks/MockERC20.sol";
 import {MockV3Aggregator} from "@chainlink/contracts/src/v0.8/tests/MockV3Aggregator.sol";
 
 abstract contract CodeConstants {

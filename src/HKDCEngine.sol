@@ -342,7 +342,7 @@ contract HKDCEngine is ReentrancyGuard {
         return convertUsdToHkd(totalUsdValue);
     }
 
-    function getAccountInfo(address user) external view returns (uint256, uint256) {
+    function getAccountInfo(address user) public view returns (uint256, uint256) {
         uint256 dscMinted = _dscMinted[user];
         uint256 collateralHkdValue = getUserCollateralHkdValue(user);
         return (dscMinted, collateralHkdValue);
@@ -365,9 +365,8 @@ contract HKDCEngine is ReentrancyGuard {
     }
 
     function getDscToCollateralRatio(address user) public view returns (uint256) {
-        uint256 totalCollateralHkdValue = getUserCollateralHkdValue(user);
-        uint256 totalDscMinted = _dscMinted[user];
-        uint256 dscToCollateralRatio = totalDscMinted * PRECISION / totalCollateralHkdValue;
+        (uint256 dscMinted, uint256 collateralHkdValue) = getAccountInfo(user);
+        uint256 dscToCollateralRatio = dscMinted * PRECISION / collateralHkdValue;
         return dscToCollateralRatio;
     }
 
@@ -377,7 +376,7 @@ contract HKDCEngine is ReentrancyGuard {
         return dscToCollateralRatio >= liquidationRatio;
     }
 
-    function getNumOfCollateralTokens() public view returns (uint256) {
+    function getNumOfCollateralTokens() external view returns (uint256) {
         return collateralTokens.length;
     }
 
