@@ -18,6 +18,7 @@ contract HelperConfig is CodeConstants, Script {
         address wbtcUsdPriceFeed;
         address weth;
         address wbtc;
+        address protocolFeeRecipient;
         uint256 deployerKey;
     }
 
@@ -47,6 +48,7 @@ contract HelperConfig is CodeConstants, Script {
             wbtcUsdPriceFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,
             weth: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,
             wbtc: 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599,
+            protocolFeeRecipient: 0x121E66D6ae8752a3da7cD965a81cc59249338BAf,
             deployerKey: vm.envUint("PRIVATE_KEY")
         });
     }
@@ -65,6 +67,7 @@ contract HelperConfig is CodeConstants, Script {
             wbtcUsdPriceFeed: address(btcUsdPriceFeed),
             weth: address(weth),
             wbtc: address(wbtc),
+            protocolFeeRecipient: 0x121E66D6ae8752a3da7cD965a81cc59249338BAf,
             deployerKey: DEFAULT_ANVIL_PRIVATE_KEY
         });
     }

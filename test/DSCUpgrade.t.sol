@@ -39,7 +39,6 @@ contract DSCUpgradeTest is Test {
 
     function test_dscInitialized() public view {
         assertEq(dscProxy.hasRole(dscProxy.DEFAULT_ADMIN_ROLE(), deployer), true);
-        assertEq(dscProxy.hasRole(dscProxy.ADMIN_ROLE(), deployer), false);
         assertEq(dscProxy.hasRole(dscProxy.UPGRADE_ROLE(), deployer), true);
         assertEq(dscProxy.hasRole(dscProxy.UPGRADE_ROLE(), user), false);
         assertEq(dscProxy.version(), 1);

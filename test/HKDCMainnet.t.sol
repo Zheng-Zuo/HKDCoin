@@ -1,0 +1,240 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Test, console2} from "forge-std/Test.sol";
+import {DeployProtocol, HKDCEngine, DSC, HelperConfig} from "script/deploy/deployProtocol.s.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IERC20Metadata as IERC20} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+contract HKDCMainnetTest is Test {
+    HKDCEngine public hkdce;
+    DSC public dscProxy;
+    HelperConfig public helperConfig;
+    address public deployer;
+    address public protocolFeeRecipient;
+    IERC20 public weth;
+    IERC20 public wbtc;
+    address public ethPriceFeed;
+    address public btcPriceFeed;
+    address public user = makeAddr("user");
+    uint256 constant BALANCE = 10000 ether;
+    uint256 constant ONE_WBTC = 1e8;
+    uint256 constant WBTC_BALANCE = 10000 * ONE_WBTC;
+    uint256 public constant USD_PRECISION = 1e18;
+
+    function setUp() public {
+        vm.createSelectFork(vm.envString("ETH_RPC_URL"), 22507556);
+        (hkdce, dscProxy,,,, helperConfig) = new DeployProtocol().run();
+        HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
+        deployer = vm.addr(config.deployerKey);
+        protocolFeeRecipient = config.protocolFeeRecipient;
+        weth = IERC20(config.weth);
+        wbtc = IERC20(config.wbtc);
+        ethPriceFeed = config.wethUsdPriceFeed;
+        btcPriceFeed = config.wbtcUsdPriceFeed;
+
+        deal(user, BALANCE);
+        deal(address(weth), user, BALANCE);
+        deal(address(wbtc), user, WBTC_BALANCE);
+
+        vm.startPrank(user);
+        weth.approve(address(hkdce), type(uint256).max);
+        wbtc.approve(address(hkdce), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    modifier onlyUser() {
+        vm.startPrank(user);
+        _;
+        vm.stopPrank();
+    }
+
+    function test_initialState() public view {
+        assertEq(dscProxy.hasRole(dscProxy.UPGRADE_ROLE(), deployer), false);
+        assertEq(dscProxy.hasRole(dscProxy.MINTER_ROLE(), address(hkdce)), true);
+        assertEq(dscProxy.hasRole(dscProxy.BURNER_ROLE(), address(hkdce)), true);
+        assertEq(dscProxy.version(), 1);
+        assertEq(weth.decimals(), 18);
+        assertEq(wbtc.decimals(), 8);
+        assertEq(hkdce.getNumOfCollateralTokens(), 3);
+        assertEq(hkdce.protocolFeeRecipient(), protocolFeeRecipient);
+        assertEq(user.balance, BALANCE);
+        assertEq(weth.balanceOf(user), BALANCE);
+        assertEq(wbtc.balanceOf(user), WBTC_BALANCE);
+
+        // price feed setup
+        // eth price feed
+        (address priceFeed, uint256 priceFeedPrecision, uint256 tokenPrecision) = hkdce.priceFeedInfos(address(0));
+        assertEq(priceFeed, ethPriceFeed);
+        assertEq(priceFeedPrecision, 1e8);
+        assertEq(tokenPrecision, 1e18);
+
+        // weth price feed
+        (priceFeed, priceFeedPrecision, tokenPrecision) = hkdce.priceFeedInfos(address(weth));
+        assertEq(priceFeed, ethPriceFeed);
+        assertEq(priceFeedPrecision, 1e8);
+        assertEq(tokenPrecision, 1e18);
+
+        // wbtc price feed
+        (priceFeed, priceFeedPrecision, tokenPrecision) = hkdce.priceFeedInfos(address(wbtc));
+        assertEq(priceFeed, btcPriceFeed);
+        assertEq(priceFeedPrecision, 1e8);
+        assertEq(tokenPrecision, 1e8);
+    }
+
+    function test_getUsdValue() public view {
+        uint256 ethAmount = 1 ether;
+        uint256 ethUsdValue = hkdce.getUsdValue(address(weth), ethAmount);
+        console2.log("ethUsdValue", ethUsdValue / USD_PRECISION);
+
+        uint256 btcAmount = 1 * 10 ** wbtc.decimals();
+        uint256 btcUsdValue = hkdce.getUsdValue(address(wbtc), btcAmount);
+        console2.log("btcUsdValue", btcUsdValue / USD_PRECISION);
+    }
+
+    function test_getHkdValue() public view {
+        uint256 ethAmount = 1 ether;
+        uint256 ethUsdValue = hkdce.getUsdValue(address(weth), ethAmount);
+        uint256 ethHkdValue = hkdce.convertUsdToHkd(ethUsdValue);
+        console2.log("ethHkdValue", ethHkdValue / USD_PRECISION);
+
+        uint256 btcAmount = 1 * 10 ** wbtc.decimals();
+        uint256 btcUsdValue = hkdce.getUsdValue(address(wbtc), btcAmount);
+        uint256 btcHkdValue = hkdce.convertUsdToHkd(btcUsdValue);
+        console2.log("btcHkdValue", btcHkdValue / USD_PRECISION);
+    }
+
+    function test_directDepositEthAndMintSeparately() public onlyUser {
+        uint256 ethAmount = 1 ether;
+        (bool success,) = address(hkdce).call{value: ethAmount}("");
+        assertEq(success, true);
+        assertEq(user.balance, BALANCE - ethAmount);
+        assertEq(address(hkdce).balance, ethAmount);
+
+        uint256 recordedEthAmount = hkdce.collateralDeposited(user, address(0));
+        assertEq(recordedEthAmount, ethAmount);
+
+        uint256 expectedCollateralHkdValue = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(0), recordedEthAmount));
+        uint256 collateralHkdValue = hkdce.getUserCollateralHkdValue(user);
+        assertEq(collateralHkdValue, expectedCollateralHkdValue);
+
+        uint256 maxMintableLeft = hkdce.getMaxDscMintableLeft(user);
+        assertEq(maxMintableLeft, collateralHkdValue * 60 / 100);
+
+        uint256 mintFee = hkdce.getMintFee(maxMintableLeft);
+
+        hkdce.mintDsc{value: mintFee}(type(uint256).max);
+        assertEq(dscProxy.balanceOf(user), maxMintableLeft);
+    }
+
+    function test_depositCollateralWithWethAndMintSeparately() public onlyUser {
+        uint256 wethAmount = 1 ether;
+        hkdce.depositCollateral(address(weth), wethAmount);
+        assertEq(weth.balanceOf(user), BALANCE - wethAmount);
+        assertEq(weth.balanceOf(address(hkdce)), wethAmount);
+
+        uint256 recordedWethAmount = hkdce.collateralDeposited(user, address(weth));
+        assertEq(recordedWethAmount, wethAmount);
+
+        uint256 expectedCollateralHkdValue = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(weth), recordedWethAmount));
+        uint256 collateralHkdValue = hkdce.getUserCollateralHkdValue(user);
+        assertEq(collateralHkdValue, expectedCollateralHkdValue);
+
+        uint256 maxMintableLeft = hkdce.getMaxDscMintableLeft(user);
+        assertEq(maxMintableLeft, collateralHkdValue * 60 / 100);
+
+        uint256 mintFee = hkdce.getMintFee(maxMintableLeft);
+
+        hkdce.mintDsc{value: mintFee}(type(uint256).max);
+        assertEq(dscProxy.balanceOf(user), maxMintableLeft);
+    }
+
+    function test_depositCollateralWithWbtcAndMintSeparately() public onlyUser {
+        hkdce.depositCollateral(address(wbtc), ONE_WBTC);
+        assertEq(wbtc.balanceOf(user), WBTC_BALANCE - ONE_WBTC);
+        assertEq(wbtc.balanceOf(address(hkdce)), ONE_WBTC);
+
+        uint256 recordedWbtcAmount = hkdce.collateralDeposited(user, address(wbtc));
+        assertEq(recordedWbtcAmount, ONE_WBTC);
+
+        uint256 expectedCollateralHkdValue = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), recordedWbtcAmount));
+        uint256 collateralHkdValue = hkdce.getUserCollateralHkdValue(user);
+        assertEq(collateralHkdValue, expectedCollateralHkdValue);
+
+        uint256 maxMintableLeft = hkdce.getMaxDscMintableLeft(user);
+        assertEq(maxMintableLeft, collateralHkdValue * 60 / 100);
+
+        uint256 mintFee = hkdce.getMintFee(maxMintableLeft);
+
+        hkdce.mintDsc{value: mintFee}(type(uint256).max);
+        assertEq(dscProxy.balanceOf(user), maxMintableLeft);
+    }
+
+    function test_revertWithNotAllowedCollateralToken() public onlyUser {
+        IERC20 usdc = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
+        vm.expectRevert(HKDCEngine.TokenNotAllowed.selector);
+        hkdce.depositCollateral(address(usdc), 1);
+    }
+
+    function test_revertWithInSufficientCollateralAmount() public onlyUser {
+        uint256 ethAmount = 1 ether;
+        vm.expectRevert(HKDCEngine.InsufficientEthCollateral.selector);
+        hkdce.depositCollateral{value: ethAmount - 1}(address(0), ethAmount);
+    }
+
+    function test_revertWithInSufficientMintFeeAmount() public onlyUser {
+        uint256 ethAmount = 1 ether;
+
+        hkdce.depositCollateral{value: ethAmount}(address(0), ethAmount);
+
+        uint256 maxMintableLeft = hkdce.getMaxDscMintableLeft(user);
+        uint256 mintFee = hkdce.getMintFee(maxMintableLeft);
+        vm.expectRevert(HKDCEngine.InsufficientMintFee.selector);
+        hkdce.mintDsc{value: mintFee - 1}(maxMintableLeft);
+    }
+
+    function test_revertWithInSufficientEthForDepositAndMint() public onlyUser {
+        uint256 ethAmount = 1 ether;
+        uint256 hkdcAmount = 1000 ether;
+        uint256 mintFee = hkdce.getMintFee(hkdcAmount);
+        vm.expectRevert(HKDCEngine.InsufficientEthForDepositAndMint.selector);
+        hkdce.depositCollateralAndMintDsc{value: ethAmount + mintFee - 1}(address(0), ethAmount, hkdcAmount);
+    }
+
+    function test_depositCollateralAndMintDscWithEth() public onlyUser {
+        uint256 ethAmount = 1 ether;
+        uint256 hkdcAmount = 1000 ether;
+        uint256 mintFee = hkdce.getMintFee(hkdcAmount);
+
+        hkdce.depositCollateralAndMintDsc{value: ethAmount + mintFee}(address(0), ethAmount, hkdcAmount);
+
+        assertEq(dscProxy.balanceOf(user), hkdcAmount);
+        assertEq(hkdce.collateralDeposited(user, address(0)), ethAmount);
+        assertEq(hkdce.collateralDeposited(protocolFeeRecipient, address(0)), mintFee);
+    }
+
+    function test_depositCollateralAndMintDscWithWbtc() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, type(uint256).max);
+
+        assertEq(dscProxy.balanceOf(user), expectedMaxHkdcMintable);
+        assertEq(hkdce.collateralDeposited(user, address(wbtc)), wbtcAmount);
+        assertEq(hkdce.collateralDeposited(protocolFeeRecipient, address(0)), mintFee);
+    }
+
+    function test_refundExcessEth() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee * 2}(address(wbtc), wbtcAmount, type(uint256).max);
+
+        assertEq(dscProxy.balanceOf(user), expectedMaxHkdcMintable);
+        assertEq(hkdce.collateralDeposited(user, address(wbtc)), wbtcAmount);
+        assertEq(hkdce.collateralDeposited(protocolFeeRecipient, address(0)), mintFee);
+        assertEq(user.balance, BALANCE - mintFee);
+    }
+}
