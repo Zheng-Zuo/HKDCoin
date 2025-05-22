@@ -40,6 +40,7 @@ contract HKDCMainnetTest is Test {
         vm.startPrank(user);
         weth.approve(address(hkdce), type(uint256).max);
         wbtc.approve(address(hkdce), type(uint256).max);
+        dscProxy.approve(address(hkdce), type(uint256).max);
         vm.stopPrank();
     }
 
@@ -236,5 +237,112 @@ contract HKDCMainnetTest is Test {
         assertEq(hkdce.collateralDeposited(user, address(wbtc)), wbtcAmount);
         assertEq(hkdce.collateralDeposited(protocolFeeRecipient, address(0)), mintFee);
         assertEq(user.balance, BALANCE - mintFee);
+    }
+
+    function test_revertWithExceedMaxDscMintable() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+        vm.expectRevert(HKDCEngine.ExceedMaxDscMintable.selector);
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, expectedMaxHkdcMintable + 1);
+    }
+
+    function test_revertWithBelowMinDscMintableThreshold() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 mintAmount = 5 ether - 1;
+        uint256 mintFee = hkdce.getMintFee(mintAmount);
+        vm.expectRevert(HKDCEngine.BelowMinDscMintableThreshold.selector);
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, mintAmount);
+    }
+
+    function test_revertWithMoreThanDscMinted() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, type(uint256).max);
+        vm.expectRevert(HKDCEngine.MoreThanDscMinted.selector);
+        hkdce.burnDsc(expectedMaxHkdcMintable + 1);
+    }
+
+    function test_burnDsc() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, type(uint256).max);
+        assertEq(dscProxy.balanceOf(user), expectedMaxHkdcMintable);
+        (uint256 dscMinted,) = hkdce.getAccountInfo(user);
+        assertEq(dscMinted, expectedMaxHkdcMintable);
+
+        hkdce.burnDsc(expectedMaxHkdcMintable);
+        assertEq(dscProxy.balanceOf(user), 0);
+
+        (dscMinted,) = hkdce.getAccountInfo(user);
+        assertEq(dscMinted, 0);
+    }
+
+    function test_revertWithInsufficientCollateralToRedeem() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, type(uint256).max);
+        vm.expectRevert(HKDCEngine.InsufficientCollateralToRedeem.selector);
+        hkdce.redeemCollateral(address(wbtc), wbtcAmount + 1);
+    }
+
+    function test_revertWithCollateralBelowLiquidationThreshold() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, type(uint256).max);
+        vm.expectRevert(HKDCEngine.CollateralBelowLiquidationThreshold.selector);
+        hkdce.redeemCollateral(address(wbtc), wbtcAmount);
+    }
+
+    function test_redeemCollateral() public onlyUser {
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, type(uint256).max);
+        // console2.log("expectedMaxHkdcMintable", expectedMaxHkdcMintable);
+
+        uint256 minHkdValueForCollateral = expectedMaxHkdcMintable * 100 / 85;
+        uint256 minUsdValueForCollateral = hkdce.convertHkdToUsd(minHkdValueForCollateral);
+        uint256 minCollateralAmount = hkdce.getTokenAmountFromUsd(address(wbtc), minUsdValueForCollateral);
+
+        // console2.log("minHkdValueForCollateral", minHkdValueForCollateral);
+        // console2.log("minCollateralAmount", minCollateralAmount);
+        // console2.log(
+        //     "recalculated minHkdValueForCollateral",
+        //     hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), minCollateralAmount))
+        // );
+
+        uint256 redeemAmount = wbtcAmount - (minCollateralAmount) - 100;
+        // console2.log("redeemAmount", redeemAmount);
+        hkdce.redeemCollateral(address(wbtc), redeemAmount);
+        uint256 finalRatio = hkdce.getDscToCollateralRatio(user);
+        assertLt(finalRatio, 85 * 1e18 / 100);
+        // console2.log("finalRatio", finalRatio);
+    }
+
+    function test_burnDscAndRedeemCollateral() public onlyUser {
+        uint256 initialWbtcBalance = wbtc.balanceOf(user);
+
+        uint256 wbtcAmount = ONE_WBTC;
+        uint256 expectedMaxHkdcMintable = hkdce.convertUsdToHkd(hkdce.getUsdValue(address(wbtc), wbtcAmount)) * 60 / 100;
+        uint256 mintFee = hkdce.getMintFee(expectedMaxHkdcMintable);
+
+        hkdce.depositCollateralAndMintDsc{value: mintFee}(address(wbtc), wbtcAmount, type(uint256).max);
+        assertEq(dscProxy.balanceOf(user), expectedMaxHkdcMintable);
+        assertEq(wbtc.balanceOf(user), initialWbtcBalance - wbtcAmount);
+
+        hkdce.burnDscAndRedeemCollateral(address(wbtc), wbtcAmount, expectedMaxHkdcMintable);
+        assertEq(wbtc.balanceOf(user), initialWbtcBalance);
+        assertEq(hkdce.collateralDeposited(user, address(wbtc)), 0);
+        assertEq(dscProxy.balanceOf(user), 0);
     }
 }
