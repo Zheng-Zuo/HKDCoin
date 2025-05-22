@@ -30,7 +30,7 @@ contract HKDCEngine is ReentrancyGuard {
     event PriceFeedSet(address indexed collateralToken, address indexed priceFeed);
     event CollateralDeposited(address indexed user, address indexed collateralToken, uint256 indexed amount);
     event DscMinted(address indexed user, uint256 indexed amount, uint256 indexed mintFee);
-    event CollateralRedeemed(address indexed from, address to, address indexed collateralToken, uint256 indexed amount);
+    event CollateralRedeemed(address indexed collateralToken, uint256 indexed amount, address indexed from, address to);
     event DscBurned(uint256 indexed amount, address indexed onBehalfOf, address indexed dscFrom);
     event Liquidated(
         address indexed tokenAddress, address indexed onBehalfOf, uint256 indexed debtToCover, uint256 RedeemedAmount
@@ -85,7 +85,7 @@ contract HKDCEngine is ReentrancyGuard {
         _;
     }
 
-    modifier collateralAboveLiquidationThreshold(address user) {
+    modifier safeCollateralPostCheck(address user) {
         _;
         if (shouldLiquidate(user)) {
             revert CollateralBelowLiquidationThreshold();
@@ -166,36 +166,39 @@ contract HKDCEngine is ReentrancyGuard {
         }
     }
 
-    function depositCollateral(address tokenAddress, uint256 amount)
+    function depositCollateral(address tokenAddress, uint256 collateralAmount)
         public
         payable
         nonReentrant
         isAllowedToken(tokenAddress)
-        moreThanZero(amount)
+        moreThanZero(collateralAmount)
     {
-        collateralDeposited[msg.sender][tokenAddress] += amount;
+        collateralDeposited[msg.sender][tokenAddress] += collateralAmount;
         if (tokenAddress != NATIVE_TOKEN) {
-            IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), amount);
+            IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), collateralAmount);
         } else {
-            if (msg.value < amount) {
+            if (msg.value < collateralAmount) {
                 revert InsufficientEthCollateral();
-            } else if (msg.value > amount) {
-                msg.sender.safeTransferETH(msg.value - amount);
+            } else if (msg.value > collateralAmount) {
+                msg.sender.safeTransferETH(msg.value - collateralAmount);
             }
         }
-        emit CollateralDeposited(msg.sender, tokenAddress, amount);
+        emit CollateralDeposited(msg.sender, tokenAddress, collateralAmount);
     }
 
     function mintDsc(uint256 amount) public payable nonReentrant moreThanZero(amount) {
         (uint256 curMintAmount, uint256 mintFee) = _checkMintAmountAndFee(msg.sender, amount);
+
         if (msg.value < mintFee) {
             revert InsufficientMintFee();
         } else if (msg.value > mintFee) {
             msg.sender.safeTransferETH(msg.value - mintFee);
         }
+
         collateralDeposited[protocolFeeRecipient][NATIVE_TOKEN] += mintFee;
         _dscMinted[msg.sender] += curMintAmount;
         HKDC.mint(msg.sender, curMintAmount);
+
         emit DscMinted(msg.sender, curMintAmount, mintFee);
     }
 
@@ -225,7 +228,7 @@ contract HKDCEngine is ReentrancyGuard {
         isAllowedToken(tokenAddress)
         moreThanZero(collateralAmount)
         moreThanZero(dscAmount)
-        collateralAboveLiquidationThreshold(msg.sender)
+        safeCollateralPostCheck(msg.sender)
     {
         _burnDsc(dscAmount, msg.sender, msg.sender);
         _redeemCollateral(tokenAddress, collateralAmount, msg.sender, msg.sender);
@@ -236,7 +239,7 @@ contract HKDCEngine is ReentrancyGuard {
         nonReentrant
         isAllowedToken(tokenAddress)
         moreThanZero(collateralAmount)
-        collateralAboveLiquidationThreshold(msg.sender)
+        safeCollateralPostCheck(msg.sender)
     {
         _redeemCollateral(tokenAddress, collateralAmount, msg.sender, msg.sender);
     }
@@ -251,7 +254,7 @@ contract HKDCEngine is ReentrancyGuard {
         } else {
             to.safeTransferETH(collateralAmount);
         }
-        emit CollateralRedeemed(from, to, tokenAddress, collateralAmount);
+        emit CollateralRedeemed(tokenAddress, collateralAmount, from, to);
     }
 
     function _burnDsc(uint256 amountDscToBurn, address onBehalfOf, address dscFrom) private {
@@ -331,8 +334,10 @@ contract HKDCEngine is ReentrancyGuard {
         for (uint256 i = 0; i < collateralTokens.length; i++) {
             address collateralToken = collateralTokens[i];
             uint256 amount = collateralDeposited[user][collateralToken];
-            uint256 usdValue = getUsdValue(collateralToken, amount);
-            totalUsdValue += usdValue;
+            if (amount > 0) {
+                uint256 usdValue = getUsdValue(collateralToken, amount);
+                totalUsdValue += usdValue;
+            }
         }
         return totalUsdValue;
     }
@@ -366,6 +371,11 @@ contract HKDCEngine is ReentrancyGuard {
 
     function getDscToCollateralRatio(address user) public view returns (uint256) {
         (uint256 dscMinted, uint256 collateralHkdValue) = getAccountInfo(user);
+        if (collateralHkdValue == 0 && dscMinted == 0) {
+            return 0;
+        } else if (collateralHkdValue == 0) {
+            return type(uint256).max;
+        }
         uint256 dscToCollateralRatio = dscMinted * PRECISION / collateralHkdValue;
         return dscToCollateralRatio;
     }
