@@ -24,7 +24,7 @@ contract HelperConfig is CodeConstants, Script {
 
     uint8 public constant DECIMALS = 8;
     int256 public constant ETH_USD_PRICE = 2000e8;
-    int256 public constant BTC_USD_PRICE = 1000e8;
+    int256 public constant BTC_USD_PRICE = 100000e8;
 
     mapping(uint256 chainId => NetworkConfig networkConfig) public networkConfigs;
     uint256 public DEFAULT_ANVIL_PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
@@ -58,8 +58,8 @@ contract HelperConfig is CodeConstants, Script {
         MockV3Aggregator ethUsdPriceFeed = new MockV3Aggregator(DECIMALS, ETH_USD_PRICE);
         MockV3Aggregator btcUsdPriceFeed = new MockV3Aggregator(DECIMALS, BTC_USD_PRICE);
 
-        MockERC20 weth = new MockERC20("Wrapped Ether", "WETH", msg.sender, 1000e18);
-        MockERC20 wbtc = new MockERC20("Wrapped Bitcoin", "WBTC", msg.sender, 1000e18);
+        MockERC20 weth = new MockERC20("Wrapped Ether", "WETH", 18, msg.sender, 10000e18);
+        MockERC20 wbtc = new MockERC20("Wrapped Bitcoin", "WBTC", 8, msg.sender, 10000e8);
         vm.stopBroadcast();
 
         anvilNetworkConfig = NetworkConfig({

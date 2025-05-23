@@ -6,7 +6,7 @@ import {DeployProtocol, HKDCEngine, DSC, HelperConfig} from "script/deploy/deplo
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20Metadata as IERC20} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
-contract HKDCMainnetTest is Test {
+contract HKDCEngineMainnetTest is Test {
     HKDCEngine public hkdce;
     DSC public dscProxy;
     HelperConfig public helperConfig;
@@ -20,7 +20,7 @@ contract HKDCMainnetTest is Test {
     uint256 constant BALANCE = 10000 ether;
     uint256 constant ONE_WBTC = 1e8;
     uint256 constant WBTC_BALANCE = 10000 * ONE_WBTC;
-    uint256 public constant USD_PRECISION = 1e18;
+    uint256 public constant PRECISION = 1e18;
 
     function setUp() public {
         vm.createSelectFork(vm.envString("ETH_RPC_URL"), 22507556);
@@ -86,23 +86,23 @@ contract HKDCMainnetTest is Test {
     function test_getUsdValue() public view {
         uint256 ethAmount = 1 ether;
         uint256 ethUsdValue = hkdce.getUsdValue(address(weth), ethAmount);
-        console2.log("ethUsdValue", ethUsdValue / USD_PRECISION);
+        console2.log("ethUsdValue", ethUsdValue / PRECISION);
 
         uint256 btcAmount = 1 * 10 ** wbtc.decimals();
         uint256 btcUsdValue = hkdce.getUsdValue(address(wbtc), btcAmount);
-        console2.log("btcUsdValue", btcUsdValue / USD_PRECISION);
+        console2.log("btcUsdValue", btcUsdValue / PRECISION);
     }
 
     function test_getHkdValue() public view {
         uint256 ethAmount = 1 ether;
         uint256 ethUsdValue = hkdce.getUsdValue(address(weth), ethAmount);
         uint256 ethHkdValue = hkdce.convertUsdToHkd(ethUsdValue);
-        console2.log("ethHkdValue", ethHkdValue / USD_PRECISION);
+        console2.log("ethHkdValue", ethHkdValue / PRECISION);
 
         uint256 btcAmount = 1 * 10 ** wbtc.decimals();
         uint256 btcUsdValue = hkdce.getUsdValue(address(wbtc), btcAmount);
         uint256 btcHkdValue = hkdce.convertUsdToHkd(btcUsdValue);
-        console2.log("btcHkdValue", btcHkdValue / USD_PRECISION);
+        console2.log("btcHkdValue", btcHkdValue / PRECISION);
     }
 
     function test_directDepositEthAndMintSeparately() public onlyUser {
