@@ -6,6 +6,11 @@ via_ir = true
 fs_permissions = [{ access = "read-write", path = "./" }]
 evm_version = "shanghai"
 
+[invariant]
+runs = 128
+depth = 512
+fail_on_revert = true
+
 [etherscan]
 mainnet = { key = "${ETH_API_KEY}", chain = 1, url = "https://api.etherscan.io/api" }
 bsc = { key = "${BSC_API_KEY}", chain = 56, url = "https://api.bscscan.com/api" }
